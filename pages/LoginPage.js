@@ -5,9 +5,9 @@ class LoginPage extends BasePage {
         super(page, options);
 
         // selectors
-        this.user = "#user-name";
+        this.user = "#username";
         this.pass = "#password";
-        this.loginBtn = "#login-button";
+        this.loginBtn = "#login";
     }
 
     async login(username, password) {
