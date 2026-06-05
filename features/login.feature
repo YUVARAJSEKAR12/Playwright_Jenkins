@@ -6,3 +6,4 @@ Feature: Login
     When I login using env credentials
     #Then I should see the products page
     #Git commit
+    #Git pull
