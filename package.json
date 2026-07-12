@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "cucumber-js",
-    "test:smoke": "cucumber-js --tags @smoke"
+    "test:smoke": "cucumber-js --tags @smoke",
+    "test:cucumber": "cucumber-js --format progress --format json:cucumber-report/cucumber-report.json"
   },
   "keywords": [],
   "author": "",
