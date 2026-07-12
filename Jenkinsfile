@@ -1,89 +1,231 @@
 pipeline {
-  agent any
+    agent any
 
-  options {
-    timestamps()
-    ansiColor('xterm')
-    buildDiscarder(logRotator(numToKeepStr: '20'))
-  }
-
-  parameters {
-    string(name: 'CUCUMBER_TAGS', defaultValue: '@smoke', description: 'Cucumber tag expression (e.g. @smoke or @smoke and not @wip)')
-    choice(name: 'BROWSER', choices: ['chromium', 'firefox', 'webkit'], description: 'Playwright browser')
-    choice(name: 'ENV', choices: ['qa', 'stage', 'prod'], description: 'Which env config to use')
-    booleanParam(name: 'HEADLESS', defaultValue: true, description: 'Run headless?')
-  }
-
-  environment {
-    // Speeds up installs
-    CI = "true"
-    NPM_CONFIG_FUND = "false"
-    NPM_CONFIG_AUDIT = "false"
-
-    // If you use .env files like .env.qa, .env.stage...
-    DOTENV_CONFIG_PATH = ".env.${params.ENV}"
-  }
-
-  stages {
-    stage('Checkout') {
-      steps { checkout scm }
+    options {
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        skipDefaultCheckout(true)
     }
 
-    stage('Node & Install Deps') {
-      steps {
-        sh '''
-          node -v
-          npm -v
-          npm ci
-        '''
-      }
+    parameters {
+        string(
+            name: 'CUCUMBER_TAGS',
+            defaultValue: '@smoke',
+            description: 'Example: @smoke or @smoke and not @wip'
+        )
+
+        choice(
+            name: 'BROWSER',
+            choices: ['chromium', 'firefox', 'webkit'],
+            description: 'Select Playwright browser'
+        )
+
+        choice(
+            name: 'ENV',
+            choices: ['qa', 'stage', 'prod'],
+            description: 'Select environment'
+        )
+
+        booleanParam(
+            name: 'HEADLESS',
+            defaultValue: true,
+            description: 'Run browser in headless mode'
+        )
     }
 
-    stage('Install Playwright Browsers') {
-      steps {
-        sh '''
-          npx playwright install --with-deps
-        '''
-      }
+    environment {
+        CI = 'true'
+        NPM_CONFIG_FUND = 'false'
+        NPM_CONFIG_AUDIT = 'false'
     }
 
-    stage('Run Cucumber Tests') {
-      steps {
-        sh """
-          echo "Running with tags: ${params.CUCUMBER_TAGS}"
-          echo "Using env file: ${env.DOTENV_CONFIG_PATH}"
-          echo "Browser: ${params.BROWSER}, Headless: ${params.HEADLESS}"
+    stages {
 
-          # Export for your hooks/config to read
-          export BROWSER=${params.BROWSER}
-          export HEADLESS=${params.HEADLESS}
-          export CUCUMBER_TAGS="${params.CUCUMBER_TAGS}"
+        stage('Checkout Source Code') {
+            steps {
+                cleanWs()
 
-          # If you use dotenv-cli or dotenv package, it will load DOTENV_CONFIG_PATH
-          npm run test:cucumber -- --tags "${params.CUCUMBER_TAGS}"
-        """
-      }
+                checkout scm
+
+                bat '''
+                    echo Current workspace:
+                    cd
+
+                    echo Repository files:
+                    dir
+                '''
+            }
+        }
+
+        stage('Verify Required Files') {
+            steps {
+                bat '''
+                    if not exist package.json (
+                        echo ERROR: package.json is not available in the Jenkins workspace.
+                        exit /b 1
+                    )
+
+                    if not exist features (
+                        echo ERROR: features folder is not available.
+                        exit /b 1
+                    )
+
+                    echo package.json and features folder are available.
+                '''
+            }
+        }
+
+        stage('Verify Node and NPM') {
+            steps {
+                bat '''
+                    where node
+                    if errorlevel 1 (
+                        echo ERROR: Node.js is not configured for Jenkins.
+                        exit /b 1
+                    )
+
+                    where npm
+                    if errorlevel 1 (
+                        echo ERROR: npm is not configured for Jenkins.
+                        exit /b 1
+                    )
+
+                    echo Node version:
+                    node --version
+
+                    echo NPM version:
+                    npm --version
+                '''
+            }
+        }
+
+        stage('Install NPM Dependencies') {
+            steps {
+                bat '''
+                    if exist package-lock.json (
+                        echo package-lock.json found. Running npm ci...
+                        call npm ci
+                    ) else (
+                        echo package-lock.json not found. Running npm install...
+                        call npm install
+                    )
+
+                    if errorlevel 1 (
+                        echo ERROR: NPM dependency installation failed.
+                        exit /b 1
+                    )
+
+                    echo Installed dependencies:
+                    call npm list --depth=0
+                '''
+            }
+        }
+
+        stage('Install Playwright Browser') {
+            steps {
+                script {
+                    bat """
+                        echo Installing Playwright browser: ${params.BROWSER}
+
+                        call npx playwright install ${params.BROWSER}
+
+                        if errorlevel 1 (
+                            echo ERROR: Playwright browser installation failed.
+                            exit /b 1
+                        )
+                    """
+                }
+            }
+        }
+
+        stage('Verify Feature Tags') {
+            steps {
+                script {
+                    bat """
+                        echo Searching for tag: ${params.CUCUMBER_TAGS}
+
+                        findstr /S /N /I /C:"${params.CUCUMBER_TAGS}" features\\*.feature
+
+                        if errorlevel 1 (
+                            echo WARNING: Exact tag text may not have been found.
+                            echo Jenkins will still execute Cucumber so that Cucumber can validate the expression.
+                        )
+                    """
+                }
+            }
+        }
+
+        stage('Run Cucumber Tests') {
+            steps {
+                script {
+                    withEnv([
+                        "BROWSER=${params.BROWSER}",
+                        "HEADLESS=${params.HEADLESS}",
+                        "TEST_ENV=${params.ENV}",
+                        "DOTENV_CONFIG_PATH=.env.${params.ENV}"
+                    ]) {
+                        bat """
+                            echo ==========================================
+                            echo Running Cucumber Playwright tests
+                            echo ==========================================
+                            echo Tags       : ${params.CUCUMBER_TAGS}
+                            echo Browser    : %BROWSER%
+                            echo Headless   : %HEADLESS%
+                            echo Environment: %TEST_ENV%
+                            echo Env file   : %DOTENV_CONFIG_PATH%
+                            echo ==========================================
+
+                            if not exist "%DOTENV_CONFIG_PATH%" (
+                                echo WARNING: %DOTENV_CONFIG_PATH% does not exist.
+                            )
+
+                            call npm run test:cucumber -- --tags "${params.CUCUMBER_TAGS}"
+
+                            if errorlevel 1 (
+                                echo ERROR: Cucumber execution failed.
+                                exit /b 1
+                            )
+                        """
+                    }
+                }
+            }
+        }
     }
-  }
 
-  post {
-    always {
-      // Archive reports if you generate them
-      archiveArtifacts artifacts: 'reports/**/*, cucumber-report/**/*, test-results/**/*, playwright-report/**/*', allowEmptyArchive: true
+    post {
+        always {
+            echo 'Publishing available test results...'
 
-      // Optional JUnit publish (only if you generate junit xml)
-      junit testResults: 'test-results/**/*.xml', allowEmptyResults: true
+            archiveArtifacts(
+                artifacts: 'reports/**/*,cucumber-report/**/*,test-results/**/*,playwright-report/**/*,allure-results/**/*',
+                allowEmptyArchive: true
+            )
 
-      // Optional: publish HTML report (needs "HTML Publisher" plugin)
-      publishHTML(target: [
-        allowMissing: true,
-        alwaysLinkToLastBuild: true,
-        keepAll: true,
-        reportDir: 'cucumber-report',
-        reportFiles: 'index.html',
-        reportName: 'Cucumber HTML Report'
-      ])
+            junit(
+                testResults: 'test-results/**/*.xml',
+                allowEmptyResults: true
+            )
+
+            publishHTML(target: [
+                allowMissing         : true,
+                alwaysLinkToLastBuild: true,
+                keepAll              : true,
+                reportDir            : 'cucumber-report',
+                reportFiles          : 'index.html',
+                reportName           : 'Cucumber HTML Report'
+            ])
+        }
+
+        success {
+            echo 'Cucumber Playwright execution completed successfully.'
+        }
+
+        failure {
+            echo 'Pipeline failed. Check the failed stage in the Jenkins console output.'
+        }
+
+        cleanup {
+            echo 'Pipeline execution completed.'
+        }
     }
-  }
-  
 }
