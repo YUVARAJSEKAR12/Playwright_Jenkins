@@ -27,15 +27,6 @@ pipeline {
             steps {
                 bat "npx cucumber-js --tags \"${params.TAGS}\""
 
-                sh """
-                    mkdir -p test-results cucumber-report
-
-                    npx cucumber-js \
-                      --tags '${params.TAGS}' \
-                      --format progress \
-                      --format junit:test-results/cucumber-results.xml \
-                      --format html:cucumber-report/index.html
-                """
             }
         }
     }
