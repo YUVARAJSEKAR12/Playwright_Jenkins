@@ -14,18 +14,18 @@ pipeline {
     }
 
     stages {
-        stage('Install Dependencies') {
+        stage('Install') {
             steps {
-                sh 'node -v'
-                sh 'npm -v'
-                sh 'npm ci'
-                sh 'npx playwright install --with-deps'
+                bat 'node -v'
+                bat 'npm -v'
+                bat 'npm ci'
+                bat 'npx playwright install'
             }
         }
 
-        stage('Run Tests') {
+        stage('Test') {
             steps {
-                echo "Running tests with TAGS: ${params.TAGS}"
+                bat "npx cucumber-js --tags \"${params.TAGS}\""
 
                 sh """
                     mkdir -p test-results cucumber-report
@@ -42,32 +42,20 @@ pipeline {
 
     post {
         always {
-            archiveArtifacts(
-                artifacts: 'reports/**/*, cucumber-report/**/*, test-results/**/*, playwright-report/**/*',
-                allowEmptyArchive: true
-            )
+      // Archive reports if you generate them
+      archiveArtifacts artifacts: 'reports/**/*, cucumber-report/**/*, test-results/**/*, playwright-report/**/*', allowEmptyArchive: true
 
-            junit(
-                testResults: 'test-results/**/*.xml',
-                allowEmptyResults: true
-            )
+      // Optional JUnit publish (only if you generate junit xml)
+      junit testResults: 'test-results/**/*.xml', allowEmptyResults: true
 
-            publishHTML(target: [
-                allowMissing: true,
-                alwaysLinkToLastBuild: true,
-                keepAll: true,
-                reportDir: 'cucumber-report',
-                reportFiles: 'index.html',
-                reportName: 'Cucumber HTML Report'
-            ])
-        }
-
-        success {
-            echo 'Cucumber tests completed successfully.'
-        }
-
-        failure {
-            echo 'Pipeline failed. Check test execution and report publishing logs.'
-        }
+      // Optional: publish HTML report (needs "HTML Publisher" plugin)
+      publishHTML(target: [
+        allowMissing: true,
+        alwaysLinkToLastBuild: true,
+        keepAll: true,
+        reportDir: 'cucumber-report',
+        reportFiles: 'index.html',
+        reportName: 'Cucumber HTML Report'
+      ])
     }
 }
